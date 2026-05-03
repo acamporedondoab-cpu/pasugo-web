@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/supabase/auth";
 
-// Valid rider-driven transitions and the timestamp field to set for each
-const TRANSITIONS: Record<string, { to: string; timestampField: string }> = {
-  accepted:         { to: "en_route_pickup",  timestampField: "en_route_at" },
-  en_route_pickup:  { to: "arrived_pickup",   timestampField: "arrived_pickup_at" },
-  arrived_pickup:   { to: "picked_up",        timestampField: "picked_up_at" },
-  picked_up:        { to: "in_transit",       timestampField: "in_transit_at" },
-  in_transit:       { to: "delivered",        timestampField: "delivered_at" },
+// Valid rider-driven transitions.
+// arrived_pickup skips the picked_up tap — both timestamps are recorded atomically.
+const TRANSITIONS: Record<string, { to: string; timestampFields: string[] }> = {
+  accepted:        { to: "en_route_pickup", timestampFields: ["en_route_at"] },
+  en_route_pickup: { to: "arrived_pickup",  timestampFields: ["arrived_pickup_at"] },
+  arrived_pickup:  { to: "in_transit",      timestampFields: ["picked_up_at", "in_transit_at"] },
+  in_transit:      { to: "delivered",       timestampFields: ["delivered_at"] },
 };
 
 export async function POST(
@@ -88,7 +88,9 @@ export async function POST(
     );
   }
 
-  const { to: newStatus, timestampField } = transition;
+  const { to: newStatus, timestampFields } = transition;
+  const now = new Date().toISOString();
+  const timestampUpdates = Object.fromEntries(timestampFields.map((f) => [f, now]));
 
   // 5. Atomic UPDATE — guards against stale reads with status check in WHERE
   console.log(`[POST /api/orders/${orderId}/status] Transitioning ${order.status} → ${newStatus}`);
@@ -97,7 +99,7 @@ export async function POST(
     .from("orders")
     .update({
       status: newStatus,
-      [timestampField]: new Date().toISOString(),
+      ...timestampUpdates,
     })
     .eq("id", orderId)
     .eq("status", order.status)
