@@ -1,8 +1,1 @@
-{
-  "crons": [
-    {
-      "path": "/api/system/expire-orders",
-      "schedule": "0 0 * * *"
-    }
-  ]
-}
+{}
