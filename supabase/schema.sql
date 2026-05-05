@@ -214,6 +214,9 @@ CREATE TABLE public.orders (
   -- Customer instructions
   notes              text,
 
+  -- Agreed fare for this delivery (set by customer at order creation)
+  fare_amount        integer,
+
   -- Re-broadcast tracking (max 3 before failing)
   search_attempts    int             NOT NULL  DEFAULT 1,
 
@@ -376,6 +379,32 @@ CREATE INDEX idx_rider_loc_recorded_at
   ON public.rider_locations (recorded_at);
 
 ALTER TABLE public.rider_locations ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT, INSERT ON public.rider_locations TO authenticated;
+
+-- Riders can insert their own GPS pings
+CREATE POLICY "Riders can insert own location"
+ON public.rider_locations
+FOR INSERT
+WITH CHECK (auth.uid() = rider_id);
+
+-- Customers can read location pings for orders they own
+CREATE POLICY "Customers can view rider location for their orders"
+ON public.rider_locations
+FOR SELECT
+USING (
+  EXISTS (
+    SELECT 1 FROM public.orders
+    WHERE orders.id = rider_locations.order_id
+      AND orders.customer_id = auth.uid()
+  )
+);
+
+-- Riders can read their own pings
+CREATE POLICY "Riders can view own location pings"
+ON public.rider_locations
+FOR SELECT
+USING (auth.uid() = rider_id);
 
 
 -- =================================================================

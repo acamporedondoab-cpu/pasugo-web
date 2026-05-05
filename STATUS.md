@@ -1,6 +1,6 @@
 # STATUS — Pasugo Delivery App
 
-**Last Updated:** 2026-05-03  
+**Last Updated:** 2026-05-04 (Sprint 3 — phase-based Maps nav, service-type wording, rider GPS, fare)  
 **Stack:** Next.js 14 · Supabase · TypeScript · Tailwind CSS  
 **Deployment:** Vercel (not yet deployed)
 
@@ -8,11 +8,12 @@
 
 ## Current Sprint
 
-**Sprint 2 — Web UI (COMPLETE ✓)**
+**Sprint 3 — React Native / Expo Mobile App (IN PROGRESS)**
 
-Phase 1 (Auth), Phase 2 (Customer UI), Phase 3 (Rider Web UI), Phase 4 (Admin Dashboard) all complete and verified.
+Customer screens, rider screens, real-time tracking, and status state machine all working end-to-end.
+Remaining: GPS map tracking, cron/expire-orders wiring for mobile, Vercel deployment.
 
-**Next:** Sprint 3 — React Native / Expo mobile app (customer + rider)
+**Previously:** Sprint 2 — Web UI (COMPLETE ✓) — Auth, Customer UI, Rider Web UI, Admin Dashboard all complete.
 
 ---
 
@@ -206,13 +207,131 @@ Step 15: Rider cancels it (back to searching, search_attempts: 2)
 
 ---
 
+## Sprint 3 — Mobile App Progress (pasugo-mobile)
+
+### Customer Screens (COMPLETE ✓)
+- **Login screen** — email/password, role-based redirect
+- **Dashboard** — 3 service cards (Pabili, Pahatid, Pasundo) + Recent Orders section
+- **New Order screen** — pickup/dropoff address, notes, service type pre-filled
+- **Order tracking screen** (`/customer/order/[id]`) — live timeline, status badge, cancel button, "Order Delivered!" confirmation
+
+### Rider Screens (COMPLETE ✓)
+- **Dashboard** — available (searching) orders list + Recent Deliveries section, real-time updates, pull-to-refresh
+- **Active Order screen** (`/rider/order/[id]`) — service-type-aware action buttons, 4-tap flow, cancel delivery
+
+### Key Features Built
+- `SafeAreaView` from `react-native-safe-area-context` used throughout (Android status bar inset)
+- Supabase Realtime subscriptions on order rows (customer + rider)
+- 8-second polling fallback alongside Realtime (catches missed events)
+- Sign out on both dashboards, role-aware redirect after sign-in
+- `skipRedirect=1` param to bypass active-order redirect when navigating home
+- Two-`useEffect` pattern for Realtime — prevents "cannot add postgres_changes callbacks after subscribe()" error
+
+### Backend Changes (deployed to Vercel)
+- `POST /api/orders/:id/status` — updated to auto-advance `arrived_pickup → in_transit` atomically (records both `picked_up_at` and `in_transit_at`), reducing rider taps from 5 to 4
+
+### Service-Type Aware Labels
+- `pasundo` (fetch a person): "On the Way to Passenger", "Arrived at Location", "Passenger Boarded", "Arrived at Destination"
+- `pabili` / `pahatid` (item delivery): "Heading to Pickup", "Arrived at Pickup", "Item Picked Up", "Mark as Delivered"
+
+### Bugs Fixed This Sprint
+| Bug | Fix |
+|---|---|
+| Back button hidden behind Android status bar | Switched all screens to `SafeAreaView` from `react-native-safe-area-context` |
+| Sign-in broken after sign-out | `onAuthStateChange` now fetches role on sign-in event, not just sign-out |
+| Home button looped back to order summary | Added `skipRedirect=1` param; dashboard skips `checkActiveOrder()` when present |
+| Realtime error after subscribe() | Split into two `useEffect` hooks gated by `hasActiveDelivery` state |
+| Customer "Order Delivered" never showed | Added explicit delivered terminal card + 8s polling fallback |
+| `ReferenceError: Property 'TIMELINE' doesn't exist` | Fixed leftover reference after renaming to service-type-specific timeline arrays |
+| Rider fare not visible before accepting | Added `pickup_lat/lng`, `dropoff_lat/lng` to dashboard query + fare-fetching `useEffect` |
+| Customer map un-tappable after modal close | Removed `disabled={!riderLocation}`; always show `MapView` with fallback region from pickup/dropoff midpoint |
+| Realtime "cannot add callbacks after subscribe()" | Unique channel name per mount via `useRef(\`rider-available-orders-${Date.now()}\`)` |
+| Render error on "Back to Orders" from Recent Deliveries | Use `router.canGoBack()` — `router.back()` when stack exists, else `router.replace("/rider/dashboard")` |
+| `ReferenceError: riderLocation doesn't exist` in openGoogleMaps | Removed `riderLocation` reference (belongs to customer screen); use `order` coords + live GPS state |
+| Google Maps navigation skipped pickup waypoint (went rider→dropoff) | Switched to phase-based nav: pickup phase routes rider→pickup; dropoff phase routes pickup→dropoff |
+| `localhost:3000/login` returned 404 | Login page lives at `app/auth/login/page.tsx` — correct URL is `/auth/login` |
+
+### Rider Dashboard Improvements (COMPLETE ✓)
+- Fare estimate shown on each available order card before accepting (spinner while fetching)
+- `AvailableOrder` interface includes `pickup_lat/lng`, `dropoff_lat/lng` — used to call Directions API per card
+- `useRef<Set<string>>` used to guard against re-fetching fares on re-renders (avoids infinite loop)
+- Unique Supabase Realtime channel name per mount (`rider-available-orders-${Date.now()}` via `useRef`) — fixes "cannot add postgres_changes callbacks after subscribe()" error caused by two dashboard instances
+
+### Rider Active Order — Phase-Based Google Maps Navigation (COMPLETE ✓)
+- Navigation button label and destination change automatically based on order status
+- `PICKUP_PHASE` = `{accepted, en_route_pickup}` → button says **"Navigate to Pickup"**, routes rider → pickup
+- `DROPOFF_PHASE` = `{arrived_pickup, picked_up, in_transit}` → button says **"Navigate to Dropoff"**, routes pickup → dropoff
+- `navPhase` derived value auto-switches when Realtime pushes a status update — no extra state needed
+- Phase badge shown in the Route card header (blue for pickup phase, orange for dropoff phase)
+- Android: opens `maps.google.com` web URL with `origin=` and `destination=`
+- iOS: opens `comgooglemaps://?saddr=ORIGIN&daddr=DEST&directionsmode=driving` — if not installed, falls back to web URL
+- When heading to pickup: origin = rider live GPS if available, else pickup coords
+- When heading to dropoff: origin = pickup coords, dest = dropoff coords
+
+### Rider Active Order — Live GPS Pin on Map (COMPLETE ✓)
+- Rider's real-time GPS location shown as blue pin on both inline map and full-screen modal
+- `expo-location` installed; `watchPositionAsync` updates position every 10 meters
+- Location permission requested on screen mount
+- **IMPORTANT: Requires native build — does NOT work with Expo Go**
+- EAS build needed: `eas build --profile preview --platform android`
+
+### New Order Screen — Service-Type-Aware Copy (COMPLETE ✓)
+- `getScreenCopy(serviceType)` helper returns all UI strings based on service type
+- `pasundo` (fetch a person): title = "Ride Details", pickup label = "Your location", dropoff label = "Destination", button = "Find a Rider"
+- `pabili` / `pahatid` (item delivery): title = "Order Details", pickup label = "Pickup address", dropoff label = "Dropoff address", button = "Request Delivery"
+- Button shows fare inline when calculated: `"Find a Rider · ₱{fare}"` or `"Request Delivery · ₱{fare}"`
+- All hardcoded strings replaced; no duplicate copy logic
+
+### GPS Map & Routing (COMPLETE ✓)
+- Installed `react-native-maps` in pasugo-mobile
+- Customer order screen (`/customer/order/[id]`) shows live `MapView` with orange rider pin + blue pickup + green dropoff pins
+- Map visible only during active delivery states: `accepted` → `in_transit`
+- Re-subscribes and re-fetches on screen focus (`useFocusEffect`) — fixes map disappearing after navigating home
+- Placeholder shown if rider hasn't sent a ping yet
+- Tap map → full-screen modal with all three pins (rider, pickup, dropoff)
+- Rider order screen (`/rider/order/[id]`) shows route map with orange pickup + green dropoff pins
+- Blue polyline drawn from pickup → dropoff via Google Directions API
+- Distance badge shown (e.g. "3.2 km") — foundation for fare calculation
+- Tap map → full-screen modal with full polyline route
+- AddressPicker component captures coordinates at order creation (Google Places Autocomplete)
+- `lib/places.ts` — `fetchSuggestions`, `fetchPlaceDetails`, `fetchDirections` (includes polyline decoder, no extra dep)
+- **REQUIRED: Run RLS SQL below in Supabase SQL Editor before testing**
+
+**RLS policies needed for `rider_locations` (run once in Supabase):**
+```sql
+GRANT SELECT, INSERT ON public.rider_locations TO authenticated;
+
+CREATE POLICY "Riders can insert own location"
+ON public.rider_locations FOR INSERT
+WITH CHECK (auth.uid() = rider_id);
+
+CREATE POLICY "Customers can view rider location for their orders"
+ON public.rider_locations FOR SELECT
+USING (
+  EXISTS (SELECT 1 FROM public.orders WHERE orders.id = rider_locations.order_id AND orders.customer_id = auth.uid())
+);
+
+CREATE POLICY "Riders can view own location pings"
+ON public.rider_locations FOR SELECT
+USING (auth.uid() = rider_id);
+```
+
+**Android setup needed:**
+- Replace `REPLACE_WITH_GOOGLE_MAPS_API_KEY` in `app.json` with a real Google Maps Android API key
+- iOS uses Apple Maps by default — no key needed
+
+---
+
 ## Next Steps
 
-1. Build React Native / Expo mobile app — Sprint 3
-   - Customer app: create order, track delivery in real time
-   - Rider app: receive order notifications, tap through status, GPS tracking
-   - Same API endpoints and Supabase auth, no backend changes needed
-2. Deploy web (Next.js) to Vercel + configure Vercel cron for expire-orders
+1. ~~**GPS map**~~ DONE ✓ — live rider pin (customer), route polyline + distance (rider), full-screen modal, focus re-subscribe fix
+2. ~~**Rider fare on dashboard**~~ DONE ✓ — fare estimate shown on each order card before accepting
+3. ~~**Open in Google Maps**~~ DONE ✓ — phase-based nav: pickup phase (rider→pickup), dropoff phase (pickup→dropoff), auto-switches on status update
+4. ~~**Rider live GPS pin on map**~~ DONE ✓ — blue pin updates every 10m via `expo-location` (requires native build)
+4b. ~~**Service-type-aware new-order screen**~~ DONE ✓ — pasundo shows "Ride Details / Find a Rider"; pabili/pahatid shows "Order Details / Request Delivery"
+5. **EAS Preview Build** — run `eas build --profile preview --platform android` in `F:\pasugo-mobile` to get installable APK (needed because `expo-location` is a native module)
+6. **Expire-orders cron** — wire `POST /api/system/expire-orders` to a Vercel cron job (`vercel.json` + `CRON_SECRET`)
+7. **Deploy** — Next.js backend to Vercel; Expo app to TestFlight / Play Store internal testing
 
 ---
 
@@ -242,5 +361,5 @@ Full state machine and transition rules: see `project_specs.md`
 - [x] Order logs saved on every state change
 - [x] GPS tracking active during delivery (pings every 5s)
 - [x] Admin dashboard (orders, riders, stats, live updates)
-- [ ] React Native / Expo mobile app (customer + rider)
+- [x] React Native / Expo mobile app (customer + rider) — core screens done
 - [ ] Deployed to Vercel

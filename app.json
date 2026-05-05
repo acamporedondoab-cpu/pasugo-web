@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "44fde007-e5bc-48a5-b3da-543df65d91c3"
+      }
+    },
+    "android": {
+      "package": "com.automateph.pasugoapp"
+    }
+  }
+}
