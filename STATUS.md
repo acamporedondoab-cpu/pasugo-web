@@ -1,6 +1,6 @@
 # STATUS — Pasugo Delivery App
 
-**Last Updated:** 2026-05-04 (Sprint 3 — phase-based Maps nav, service-type wording, rider GPS, fare)  
+**Last Updated:** 2026-05-05 (Sprint 3 — signup trigger fix, logo integration, photo persistence fix)  
 **Stack:** Next.js 14 · Supabase · TypeScript · Tailwind CSS  
 **Deployment:** Vercel (not yet deployed)
 
@@ -116,6 +116,42 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+```
+
+---
+
+### 9. Signup trigger `type "user_role" does not exist` (SQLSTATE 42704)
+**Error:** Auth log showed `ERROR: type "user_role" does not exist` during sign-up.  
+**Root cause:** GoTrue runs in the `auth` schema context. The `user_role` enum lives in `public` and is invisible without full qualification.  
+**Fix:** Cast to `public.user_role` and add `SET search_path = public` to the function:
+
+```sql
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, role, name, phone)
+  VALUES (
+    NEW.id,
+    COALESCE((NEW.raw_user_meta_data->>'role')::public.user_role, 'customer'::public.user_role),
+    COALESCE(NEW.raw_user_meta_data->>'name', ''),
+    COALESCE(NEW.raw_user_meta_data->>'phone', '')
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+```
+
+**Key lesson:** Supabase Auth trigger errors only appear in **Auth logs** (Dashboard → Authentication → Logs), not Postgres logs.
+
+---
+
+### 10. Photo update: `permission denied for table profiles` / `rider_profiles`
+**Error:** `supabase.from("profiles").update(...)` returned permission denied even with RLS policy in place.  
+**Root cause:** RLS policies control which *rows* can be accessed, but the `authenticated` role also needs table-level DML grants (`GRANT UPDATE`). Both layers are required.  
+**Fix:**
+```sql
+GRANT UPDATE ON public.profiles TO authenticated;
+GRANT SELECT, UPDATE ON public.rider_profiles TO authenticated;
 ```
 
 ---
@@ -237,6 +273,9 @@ Step 15: Rider cancels it (back to searching, search_attempts: 2)
 ### Bugs Fixed This Sprint
 | Bug | Fix |
 |---|---|
+| `"database error saving new user"` — `type "user_role" does not exist` | GoTrue runs in `auth` schema; enum must be fully qualified as `public.user_role`. Added `SET search_path = public` to trigger function. |
+| Customer avatar_url stays null after photo upload | Two fixes: (1) added `GRANT UPDATE ON public.profiles TO authenticated`, (2) cache-busted URL with `?t=Date.now()` so React Native shows new photo |
+| Rider photo_url stays null after photo upload | Same pattern: `GRANT SELECT, UPDATE ON public.rider_profiles TO authenticated`; also fixed incorrect `.eq("user_id")` → `.eq("id")` (column is `id`, not `user_id`) |
 | Back button hidden behind Android status bar | Switched all screens to `SafeAreaView` from `react-native-safe-area-context` |
 | Sign-in broken after sign-out | `onAuthStateChange` now fetches role on sign-in event, not just sign-out |
 | Home button looped back to order summary | Added `skipRedirect=1` param; dashboard skips `checkActiveOrder()` when present |
@@ -319,6 +358,25 @@ USING (auth.uid() = rider_id);
 **Android setup needed:**
 - Replace `REPLACE_WITH_GOOGLE_MAPS_API_KEY` in `app.json` with a real Google Maps Android API key
 - iOS uses Apple Maps by default — no key needed
+
+---
+
+### UI / Branding (COMPLETE ✓)
+- Pasugo logo (`pasugo_logo_app.png`) added to:
+  - Admin header (`app/admin/layout.tsx`) — 40×40px, rounded-lg, orange "Pasugo Admin" label
+  - Auth login page (`app/auth/login/page.tsx`) — 80×80px centered above form
+  - Mobile login screen (`pasugo-mobile/app/login.tsx`) — 96×96px centered brandBlock with tagline
+- Logo asset copied to `pasugo-mobile/assets/logo.png` for local `require()` reference
+
+### Customer Profile Photo (COMPLETE ✓)
+- Photo uploads to Supabase Storage (`avatars` bucket) and persists `avatar_url` in `profiles` table
+- Cache-busted URL (`?t=Date.now()`) forces React Native to reload image on same storage path
+- Required SQL: `GRANT UPDATE ON public.profiles TO authenticated;`
+
+### Rider Profile Photo (COMPLETE ✓ — pending APK rebuild)
+- Photo uploads to `avatars` bucket, persists `photo_url` in `rider_profiles` table
+- Fixed incorrect `.eq("user_id")` → `.eq("id")` (rider_profiles PK is `id`)
+- Required SQL: `GRANT SELECT, UPDATE ON public.rider_profiles TO authenticated;`
 
 ---
 

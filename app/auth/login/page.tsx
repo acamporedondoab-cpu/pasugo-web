@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -55,8 +56,17 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-bold text-gray-900 mb-1">Pasugo</h1>
-        <p className="text-sm text-gray-500 mb-8">Local delivery service</p>
+        <div className="flex flex-col items-center mb-8">
+          <Image
+            src="/logo_image/pasugo_logo_app.png"
+            alt="Pasugo"
+            width={80}
+            height={80}
+            className="rounded-xl mb-3"
+          />
+          <h1 className="text-2xl font-bold text-gray-900">Pasugo</h1>
+          <p className="text-sm text-gray-500 mt-1">Local delivery service</p>
+        </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>

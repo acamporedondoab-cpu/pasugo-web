@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -23,9 +24,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-8">
-          <span className="font-bold text-orange-500 text-lg">
-            Pasugo <span className="text-gray-400 font-normal text-sm">Admin</span>
-          </span>
+          <div className="flex items-center gap-2.5">
+            <Image
+              src="/logo_image/pasugo_logo_app.png"
+              alt="Pasugo"
+              width={40}
+              height={40}
+              className="rounded-lg"
+            />
+            <span className="font-bold text-orange-500 text-lg leading-none">
+              Pasugo <span className="text-gray-400 font-normal text-sm">Admin</span>
+            </span>
+          </div>
           <nav className="flex items-center gap-1">
             {NAV.map((item) => (
               <button
