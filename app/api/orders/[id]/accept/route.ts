@@ -59,6 +59,7 @@ export async function POST(
       status: "accepted",
       rider_id: user.id,
       accepted_at: new Date().toISOString(),
+      search_attempts: 0,
     })
     .eq("id", orderId)
     .eq("status", "searching")
