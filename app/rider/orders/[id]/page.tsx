@@ -18,14 +18,13 @@ const STATUS_LABELS: Record<string, string> = {
 const NEXT_ACTION_LABELS: Record<string, string> = {
   accepted: "Head to Pickup",
   en_route_pickup: "Arrived at Pickup",
-  arrived_pickup: "Picked Up",
-  picked_up: "In Transit",
+  arrived_pickup: "Picked Up & In Transit",
   in_transit: "Mark Delivered",
 };
 
 const RIDER_CANCELLABLE = ["accepted", "en_route_pickup", "arrived_pickup"];
 const TERMINAL = ["delivered", "cancelled", "failed"];
-const GPS_ACTIVE = ["accepted", "en_route_pickup", "arrived_pickup", "picked_up", "in_transit"];
+const GPS_ACTIVE = ["accepted", "en_route_pickup", "arrived_pickup", "in_transit"];
 
 type Order = {
   id: string;

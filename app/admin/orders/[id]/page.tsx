@@ -20,6 +20,7 @@ type Order = {
   pickup_address: string;
   dropoff_address: string;
   notes: string | null;
+  fare_amount: number | null;
   created_at: string;
   accepted_at: string | null;
   picked_up_at: string | null;
@@ -102,6 +103,7 @@ export default function AdminOrderDetail() {
             <p><span className="text-gray-400">From:</span> {order.pickup_address}</p>
             <p><span className="text-gray-400">To:</span> {order.dropoff_address}</p>
             {order.notes && <p><span className="text-gray-400">Notes:</span> {order.notes}</p>}
+            <p><span className="text-gray-400">Fare:</span> {order.fare_amount != null ? `₱${order.fare_amount}` : "—"}</p>
           </div>
           <div className="text-xs text-gray-400 space-y-0.5 pt-2 border-t border-gray-100">
             <p>Created: {formatDate(order.created_at)}</p>

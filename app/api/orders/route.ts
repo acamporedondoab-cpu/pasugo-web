@@ -61,6 +61,7 @@ export async function POST(request: NextRequest) {
     dropoff_lat,
     dropoff_lng,
     notes,
+    fare_amount,
   } = body;
 
   // Required fields check
@@ -109,6 +110,7 @@ export async function POST(request: NextRequest) {
       dropoff_lat: dropoff_lat as number,
       dropoff_lng: dropoff_lng as number,
       notes: (notes as string | undefined) ?? null,
+      fare_amount: (fare_amount as number | undefined) ?? null,
       search_attempts: 1,
     })
     .select(

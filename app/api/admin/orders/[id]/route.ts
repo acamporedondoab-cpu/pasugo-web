@@ -14,6 +14,7 @@ export async function GET(
     .from("orders")
     .select(`
       id, status, service_type, pickup_address, dropoff_address, notes,
+      fare_amount,
       created_at, accepted_at, en_route_at, arrived_pickup_at,
       picked_up_at, in_transit_at, delivered_at, cancelled_at, failed_at,
       cancelled_by, failure_reason, search_attempts,
