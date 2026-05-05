@@ -1,19 +1,21 @@
 # STATUS — Pasugo Delivery App
 
-**Last Updated:** 2026-05-05 (Sprint 4 — RLS circular recursion fix, call/message buttons, item photo capture)  
+**Last Updated:** 2026-05-05 (Sprint 5 — MVP audit fixes, push notifications, retry logic, online/offline toggle)  
 **Stack:** Next.js 14 · Supabase · TypeScript · Tailwind CSS  
-**Deployment:** Vercel (not yet deployed)
+**Deployment:** Vercel ✓ — https://pasugo-rides.vercel.app (commit `7b28cb6`)
 
 ---
 
 ## Current Sprint
 
-**Sprint 3 — React Native / Expo Mobile App (IN PROGRESS)**
+**Sprint 5 — MVP Hardening (COMPLETE ✓)**
 
-Customer screens, rider screens, real-time tracking, and status state machine all working end-to-end.
-Remaining: GPS map tracking, cron/expire-orders wiring for mobile, Vercel deployment.
+Full system audit completed. All critical and high-priority gaps resolved. System is MVP-ready.
 
-**Previously:** Sprint 2 — Web UI (COMPLETE ✓) — Auth, Customer UI, Rider Web UI, Admin Dashboard all complete.
+**Previously:**
+- Sprint 4 — UX improvements, call/message buttons, item photo capture (COMPLETE ✓)
+- Sprint 3 — React Native / Expo Mobile App, GPS tracking, maps, fare estimates (COMPLETE ✓)
+- Sprint 2 — Web UI, Auth, Customer UI, Rider Web UI, Admin Dashboard (COMPLETE ✓)
 
 ---
 
@@ -427,17 +429,60 @@ USING (auth.uid() = rider_id);
 
 ---
 
-## Next Steps
+### Sprint 5 — MVP Hardening & Push Notifications (COMPLETE ✓)
 
-1. ~~**GPS map**~~ DONE ✓
-2. ~~**Rider fare on dashboard**~~ DONE ✓
-3. ~~**Open in Google Maps**~~ DONE ✓
-4. ~~**Rider live GPS pin on map**~~ DONE ✓
-5. ~~**Call & Message buttons**~~ DONE ✓
-6. ~~**Item photo capture**~~ DONE ✓
-7. **EAS Preview Build** — run `eas build --profile preview --platform android` in `F:\pasugo-mobile`
-8. **Expire-orders cron** — wire `POST /api/system/expire-orders` to a Vercel cron job (`vercel.json` + `CRON_SECRET`)
-9. **Deploy** — Next.js backend to Vercel; Expo app to TestFlight / Play Store internal testing
+#### Audit Fixes
+| Item | Fix |
+|---|---|
+| `search_attempts` not reset on new rider acceptance | Added `search_attempts: 0` to the atomic UPDATE in `POST /api/orders/:id/accept`. Prevents premature permanent-fail when a new rider accepts a rebroadcast order. |
+| `expire-orders` cron never called | Added `vercel.json` with `schedule: "* * * * *"` pointing to `/api/system/expire-orders`. `CRON_SECRET` was already set in Vercel env vars. |
+| Vercel deployment not confirmed | Verified `pasugo-rides.vercel.app` is live, current, and auto-deploys from GitHub `main`. All 4 required env vars confirmed set (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`). |
+
+#### Features Added
+
+**Rider Online/Offline Toggle**
+- Green "● Online" / gray "○ Offline" pill in the rider dashboard header
+- Tapping updates `rider_profiles.is_online` in Supabase immediately
+- Offline riders see a placeholder screen — order list hidden, no Realtime events acted on
+- `is_online` persists across app restarts (loaded from `rider_profiles` on init)
+- Required SQL: `ALTER TABLE public.rider_profiles ADD COLUMN IF NOT EXISTS is_online boolean DEFAULT false;`
+
+**Push Notifications for Riders (expo-notifications)**
+- When a customer creates an order, `POST /api/orders` fetches all `is_online = true` riders with a saved `push_token` from `rider_profiles` and sends an Expo push notification via `exp.host/--/api/v2/push/send`
+- Notification: title = "New Delivery Request 🛵", body = service type + pickup address, data = `{ orderId }`
+- Fire-and-forget — push send never blocks the order creation response
+- On rider side: permission requested + Expo push token saved to `rider_profiles.push_token` on every login
+- Android notification channel configured (MAX importance, orange light, vibration)
+- Tapping a notification navigates the rider directly to `/rider/order/:id` via `_layout.tsx` listener
+- Requires native build — does NOT work in Expo Go
+- Required SQL: `ALTER TABLE public.rider_profiles ADD COLUMN IF NOT EXISTS push_token text;`
+
+**API Retry Logic (`lib/api.ts`)**
+- `apiPost` and `apiGet` now retry once with a 1-second delay on network-level failures
+- Only retries on fetch throws (connectivity loss) — 4xx/5xx errors are not retried
+
+---
+
+## Next Steps (Sprint 6 — Post-MVP)
+
+### Immediate (before Play Store submission)
+1. **Run SQL** — `ALTER TABLE public.rider_profiles ADD COLUMN IF NOT EXISTS is_online boolean DEFAULT false;`
+2. **Run SQL** — `ALTER TABLE public.rider_profiles ADD COLUMN IF NOT EXISTS push_token text;`
+3. **EAS Build** — `eas build --profile preview --platform android` in `F:\pasugo-mobile` to apply: push notifications, online/offline toggle, logo icon, all Sprint 4–5 features
+4. **Create mobile GitHub repo** — `pasugo-mobile` has no remote; create repo and `git remote add origin <url> && git push -u origin master`
+
+### Sprint 6 — Production Readiness
+5. **Customer push notifications** — notify customer when rider accepts, arrives, and delivers (same Expo push pattern; save customer `push_token` in `profiles` table)
+6. **Auto go-offline after delivery** — when rider completes a delivery, set `is_online = false` in `rider_profiles` so they don't receive new pings until they manually go back online
+7. **Rate limiting on `POST /api/orders`** — prevent order spam; use Vercel Edge Middleware or Upstash Redis rate limiter (low priority — JWT required reduces risk)
+8. **Order confirmation screen** — customer reviews order before submitting (spec item; currently goes straight to creation)
+
+### Sprint 7 — Growth Features
+9. **Ratings & reviews** — customer rates rider after delivery; visible on rider profile
+10. **Earnings tracking** — rider sees per-delivery fare and running total in Recent Deliveries
+11. **In-app chat** — replace call/SMS with an in-app message thread per order (Supabase Realtime `order_messages` table)
+12. **Payment integration** — GCash / Maya / cash-on-delivery toggle; escrow pattern for digital payments
+13. **Smart rider matching** — filter available orders by proximity (haversine distance); riders see closest orders first instead of all searching orders
 
 ---
 
@@ -458,14 +503,17 @@ Full state machine and transition rules: see `project_specs.md`
 ## Definition of Done (MVP)
 
 - [x] Customer can create a delivery request
-- [x] Riders receive request in real time (Supabase Realtime)
+- [x] Riders receive request in real time (Supabase Realtime + push notifications)
 - [x] Rider can accept order (atomic, concurrency-safe)
 - [x] Order locks to first accepting rider
 - [x] Rider can update delivery status through all states
-- [x] Customer can track delivery in real time (Realtime timeline)
+- [x] Customer can track delivery in real time (Realtime timeline + map)
 - [x] Edge cases handled (cancel, rider-cancel, re-broadcast, max retry → failed)
 - [x] Order logs saved on every state change
 - [x] GPS tracking active during delivery (pings every 5s)
 - [x] Admin dashboard (orders, riders, stats, live updates)
-- [x] React Native / Expo mobile app (customer + rider) — core screens done
-- [ ] Deployed to Vercel
+- [x] React Native / Expo mobile app (customer + rider) — all screens done
+- [x] Deployed to Vercel — https://pasugo-rides.vercel.app
+- [x] Expire-orders cron wired and running
+- [x] Rider online/offline toggle
+- [ ] EAS APK build with push notifications (pending `eas build`)
