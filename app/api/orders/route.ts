@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/supabase/auth";
+import { createServiceClient } from "@/lib/supabase/admin";
 
 const VALID_SERVICE_TYPES = ["pabili", "pahatid", "pasundo"] as const;
 type ServiceType = (typeof VALID_SERVICE_TYPES)[number];
@@ -143,5 +144,54 @@ export async function POST(request: NextRequest) {
 
   console.log(`[POST /api/orders] Order created: ${order.id}`);
 
+  // 6. Send push notifications to online riders — fire and forget, never block the response
+  sendPushToOnlineRiders(order).catch((err) => {
+    console.error("[POST /api/orders] Push notification error:", err);
+  });
+
   return NextResponse.json({ data: order }, { status: 201 });
+}
+
+const SERVICE_LABELS: Record<string, string> = {
+  pabili: "🛒 Pabili",
+  pahatid: "📦 Pahatid",
+  pasundo: "🙋 Pasundo",
+};
+
+async function sendPushToOnlineRiders(order: {
+  id: string;
+  service_type: string;
+  pickup_address: string;
+}) {
+  const adminClient = createServiceClient();
+
+  const { data: riders } = await adminClient
+    .from("rider_profiles")
+    .select("push_token")
+    .eq("is_online", true)
+    .not("push_token", "is", null);
+
+  if (!riders || riders.length === 0) return;
+
+  const tokens = (riders as { push_token: string }[])
+    .map((r) => r.push_token)
+    .filter(Boolean);
+
+  if (tokens.length === 0) return;
+
+  const messages = tokens.map((token) => ({
+    to: token,
+    title: "New Delivery Request 🛵",
+    body: `${SERVICE_LABELS[order.service_type] ?? order.service_type} — ${order.pickup_address}`,
+    data: { orderId: order.id },
+    sound: "default",
+  }));
+
+  const res = await fetch("https://exp.host/--/api/v2/push/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(messages),
+  });
+
+  console.log(`[POST /api/orders] Push sent to ${tokens.length} rider(s), status: ${res.status}`);
 }
