@@ -1,6 +1,6 @@
 # STATUS — Pasugo Delivery App
 
-**Last Updated:** 2026-05-05 (Sprint 3 — signup trigger fix, logo integration, photo persistence fix)  
+**Last Updated:** 2026-05-05 (Sprint 4 — RLS circular recursion fix, call/message buttons, item photo capture)  
 **Stack:** Next.js 14 · Supabase · TypeScript · Tailwind CSS  
 **Deployment:** Vercel (not yet deployed)
 
@@ -378,18 +378,66 @@ USING (auth.uid() = rider_id);
 - Fixed incorrect `.eq("user_id")` → `.eq("id")` (rider_profiles PK is `id`)
 - Required SQL: `GRANT SELECT, UPDATE ON public.rider_profiles TO authenticated;`
 
+### Sprint 4 — UX Improvements & Communication Features (COMPLETE ✓)
+
+#### Bugs Fixed
+| Bug | Fix |
+|---|---|
+| Admin login redirected to `/customer/dashboard` | Indirect circular RLS recursion: `profiles` policy queried `orders`, which queried `profiles` → infinite loop. Fix: created `public.get_my_role()` SECURITY DEFINER function; rewrote orders policies to use `public.get_my_role() = 'rider'` instead of `EXISTS` on profiles. |
+| "Failed to create rider profile" in admin dashboard | Route was inserting `name` and `phone` into `rider_profiles` but those columns don't exist. Fix: removed those fields from the insert in `app/api/admin/riders/route.ts`. |
+| `permission denied for table profiles/rider_profiles` (service_role) | service_role lacked table-level grants. Fix: `GRANT ALL ON public.profiles TO service_role; GRANT ALL ON public.rider_profiles TO service_role; GRANT ALL ON public.orders TO service_role;` |
+| "JSON Parse error: Unexpected character: T" on order creation (mobile) | `BASE_URL` in `lib/api.ts` pointed to deleted deployment `pasugo-beta.vercel.app`. Fix: updated to `https://pasugo-rides.vercel.app`. |
+| `fetch(localUri).blob()` fails on React Native (photo upload) | React Native can't read local file URIs via `fetch().blob()`. Fix: use `FormData` with `{ uri, name, type }` — native networking layer handles local URIs through FormData correctly. |
+
+#### Features Added
+**Customer info on rider's available order cards (before accepting)**
+- `customer_id` added to `AvailableOrder` interface and dashboard query
+- Batch-fetches missing customer profiles from `profiles` table when orders change
+- Shows customer avatar (or initial placeholder) + name on each card
+
+**Rider details in customer's Recent Services**
+- `rider_id` added to query; batch-fetches from `rider_profiles`
+- Shows rider avatar + name on each completed order card
+
+**Customer details in rider's Recent Deliveries**
+- `customer_id` added to query; batch-fetches from `profiles`
+- Shows customer avatar + name on each completed delivery card
+
+**Call & Message buttons (rider ↔ customer)**
+- Rider active order screen: "📞 Call" and "💬 Message" buttons in Customer card — visible while order is active
+- Customer active order screen: same buttons in Your Rider card — visible once rider has accepted
+- Uses `Linking.openURL("tel:...")` and `Linking.openURL("sms:...")` — opens native dialer/SMS app
+- `Linking` already imported on rider side; added to customer screen imports
+- No backend required
+
+**Item photo capture (pabili & pahatid)**
+- Rider sees "📷 Capture Item Photo" card at `arrived_pickup` status (not shown for `pasundo`)
+- Tapping opens native camera via `expo-image-picker` (already installed)
+- Photo uploaded to `order-photos` Supabase Storage bucket via `FormData` POST to Supabase Storage REST API
+- `pickup_photo_url` saved on the order record
+- Rider sees photo preview + "Retake Photo" option after capture; photo is optional
+- Customer order screen shows the photo (with caption) once `pickup_photo_url` is set — persists through all subsequent statuses
+- Required SQL (already run):
+  ```sql
+  ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS pickup_photo_url text;
+  INSERT INTO storage.buckets (id, name, public) VALUES ('order-photos', 'order-photos', true) ON CONFLICT DO NOTHING;
+  CREATE POLICY "Riders can upload order photos" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'order-photos' AND auth.role() = 'authenticated');
+  CREATE POLICY "Public can view order photos" ON storage.objects FOR SELECT USING (bucket_id = 'order-photos');
+  ```
+
 ---
 
 ## Next Steps
 
-1. ~~**GPS map**~~ DONE ✓ — live rider pin (customer), route polyline + distance (rider), full-screen modal, focus re-subscribe fix
-2. ~~**Rider fare on dashboard**~~ DONE ✓ — fare estimate shown on each order card before accepting
-3. ~~**Open in Google Maps**~~ DONE ✓ — phase-based nav: pickup phase (rider→pickup), dropoff phase (pickup→dropoff), auto-switches on status update
-4. ~~**Rider live GPS pin on map**~~ DONE ✓ — blue pin updates every 10m via `expo-location` (requires native build)
-4b. ~~**Service-type-aware new-order screen**~~ DONE ✓ — pasundo shows "Ride Details / Find a Rider"; pabili/pahatid shows "Order Details / Request Delivery"
-5. **EAS Preview Build** — run `eas build --profile preview --platform android` in `F:\pasugo-mobile` to get installable APK (needed because `expo-location` is a native module)
-6. **Expire-orders cron** — wire `POST /api/system/expire-orders` to a Vercel cron job (`vercel.json` + `CRON_SECRET`)
-7. **Deploy** — Next.js backend to Vercel; Expo app to TestFlight / Play Store internal testing
+1. ~~**GPS map**~~ DONE ✓
+2. ~~**Rider fare on dashboard**~~ DONE ✓
+3. ~~**Open in Google Maps**~~ DONE ✓
+4. ~~**Rider live GPS pin on map**~~ DONE ✓
+5. ~~**Call & Message buttons**~~ DONE ✓
+6. ~~**Item photo capture**~~ DONE ✓
+7. **EAS Preview Build** — run `eas build --profile preview --platform android` in `F:\pasugo-mobile`
+8. **Expire-orders cron** — wire `POST /api/system/expire-orders` to a Vercel cron job (`vercel.json` + `CRON_SECRET`)
+9. **Deploy** — Next.js backend to Vercel; Expo app to TestFlight / Play Store internal testing
 
 ---
 
